@@ -12,7 +12,7 @@ import scala.collection.JavaConverters._
 
 // FIXME https://github.com/digital-asset/daml/issues/2256
 // add extensive tests
-object Equality {
+private[engine] object Equality {
 
   // Equality between two SValues of same type.
   // Note it is not reflexive, in other words there is some value `v`
@@ -52,6 +52,15 @@ object Equality {
             map1.keySet == map2.keySet && {
               val keys = map1.keys
               equality(zipAndPush(keys.iterator.map(map1), keys.iterator.map(map2), stack))
+            }
+          case (SGenMap(_, map1), SGenMap(_, map2)) =>
+            map1.keySet == map2.keySet && {
+              val keys = map1.keys
+              equality(
+                zipAndPush(
+                  keys.iterator.map(map1).map(_._2),
+                  keys.iterator.map(map2).map(_._2),
+                  stack))
             }
           case (STuple(fields1, args1), STuple(fields2, args2)) =>
             (fields1 sameElements fields2) && equality(

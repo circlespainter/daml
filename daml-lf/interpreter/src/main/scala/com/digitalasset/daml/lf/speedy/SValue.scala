@@ -64,6 +64,8 @@ sealed trait SValue {
         V.ValueOptional(mbV.map(_.toValue))
       case SMap(mVal) =>
         V.ValueMap(SortedLookupList(mVal).mapValue(_.toValue))
+      case SGenMap(_, values) =>
+        V.ValueGenMap(ImmArray(values.map { case (k, (_, v)) => k.v.toValue -> v.toValue }))
       case SContractId(coid) =>
         V.ValueContractId(coid)
       case SAny(_, _) =>
@@ -102,6 +104,11 @@ sealed trait SValue {
         SOptional(mbV.map(_.mapContractId(f)))
       case SMap(value) =>
         SMap(value.transform((_, v) => v.mapContractId(f)))
+      case SGenMap(idx, entries) =>
+        SGenMap(idx, entries.map {
+          case (SGenMap.Key(k), (i, v)) =>
+            SGenMap.Key(k.mapContractId(f)) -> ((i, v.mapContractId(f)))
+        })
       case SAny(ty, value) =>
         SAny(ty, value.mapContractId(f))
     }
@@ -143,6 +150,19 @@ object SValue {
 
   final case class SMap(value: HashMap[String, SValue]) extends SValue
 
+  final case class SGenMap(insertion: Int, value: HashMap[SGenMap.Key, (Int, SValue)])
+      extends SValue
+
+  object SGenMap {
+    case class Key(v: SValue) {
+      override val hashCode: Int = svalue.Hasher.hash(v)
+      override def equals(obj: Any): Boolean = obj match {
+        case Key(v2: SValue) => svalue.Equality.areEqual(v, v2)
+        case _ => false
+      }
+    }
+  }
+
   final case class SAny(ty: Type, value: SValue) extends SValue
 
   // Corresponds to a DAML-LF Nat type reified as a Speedy value.
@@ -174,6 +194,7 @@ object SValue {
     val EmptyList = SList(FrontStack.empty)
     val None = SOptional(Option.empty)
     val EmptyMap = SMap(HashMap.empty)
+    val EmptyGenMap = SGenMap(0, HashMap.empty)
     val Token = SToken
   }
 
@@ -184,6 +205,7 @@ object SValue {
     val False: X = apply(SValue.False)
     val EmptyList: X = apply(SValue.EmptyList)
     val EmptyMap: X = apply(SValue.EmptyMap)
+    val EmptyGenMap: X = apply(SValue.EmptyGenMap)
     val None: X = apply(SValue.None)
     val Token: X = apply(SValue.Token)
     def bool(b: Boolean) = if (b) True else False
@@ -243,6 +265,15 @@ object SValue {
 
       case V.ValueMap(map) =>
         SMap(map.mapValue(fromValue).toHashMap)
+
+      case V.ValueGenMap(map) =>
+        SGenMap(
+          map.length,
+          (HashMap.empty[SGenMap.Key, (Int, SValue)] /: map.toSeq.zipWithIndex) {
+            case (acc, ((k, v), i)) =>
+              acc.updated(SGenMap.Key(fromValue(k)), (i, fromValue(v)))
+          }
+        )
 
       case V.ValueVariant(Some(id), variant, value) =>
         SVariant(id, variant, fromValue(value))
